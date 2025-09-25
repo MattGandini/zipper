@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CoPack — ZIP / Unzip (client‑side)</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    :root{ --brand:#0927eb; --brand-50:#eef1ff; --brand-100:#e0e5ff; }
+    html{ scroll-behavior:smooth }
+    .tab[aria-selected="true"]{ background: var(--brand); color:#fff }
+    .dz{ border:2px dashed var(--brand); background:var(--brand-50) }
+    .btn{ background:var(--brand); color:#fff }
+    .btn:hover{ filter:brightness(0.92) }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <main class="max-w-5xl mx-auto p-6">
+    <header class="mb-6 flex items-center gap-4">
+      <div class="flex items-center gap-2">
+        <div class="h-10 w-10 rounded-lg bg-white border flex items-center justify-center">
+          <span class="text-lg font-bold" style="color:var(--brand)">Z</span>
+        </div>
+        <div>
+          <h1 class="text-xl font-semibold" style="color:var(--brand)">ZIP / Unzip — CoPack</h1>
+          <p class="text-sm text-gray-600">Estrai archivi <strong>.zip</strong> e <strong>.rar</strong> e crea ZIP direttamente nel browser. <strong>Nessun upload</strong>. Privacy‑friendly.</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="bg-white rounded-2xl shadow-sm p-5">
+      <div role="tablist" class="flex gap-2 mb-4">
+        <button id="tab-unzip" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="true">Estrai ZIP/RAR</button>
+        <button id="tab-zip" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="false">Crea ZIP</button>
+        <div class="ml-auto text-xs text-gray-500">Libreria: <a class="underline" href="https://github.com/101arrowz/fflate" target="_blank" rel="noopener">fflate (MIT)</a> + <span title="RAR extract via WASM">unrar-js (UnRAR license)</span></div>
+      </div>
+
+      <!-- UNZIP PANEL -->
+      <div id="panel-unzip">
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="md:col-span-2">
+            <label class="block text-sm text-gray-700 mb-2">Seleziona un archivio <span class="mono">.zip</span> o <span class="mono">.rar</span></label>
+            <input id="zipFile" type="file" accept=".zip,.rar,application/zip,application/x-rar-compressed,application/vnd.rar" class="w-full" />
+            <div id="dzUnzip" class="dz rounded-xl mt-3 p-6 text-center text-gray-800">Trascina qui il tuo file <span class="mono">.zip</span> o <span class="mono">.rar</span></div>
+          </div>
+          <div class="space-y-3">
+            <div class="text-sm text-gray-700">Azioni</div>
+            <button id="btnSelAll" class="w-full px-3 py-2 rounded-xl border">Seleziona tutto</button>
+            <button id="btnSelNone" class="w-full px-3 py-2 rounded-xl border">Deseleziona tutto</button>
+            <button id="btnDownloadSelected" class="w-full px-3 py-2 rounded-xl btn" disabled>Scarica selezionati (ZIP)</button>
+          </div>
+        </div>
+        <!-- Barra di progresso -->
+        <div id="progressWrap" class="mt-5 hidden">
+          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div id="progressBar" class="h-full" style="background: var(--brand); width:0%"></div>
+          </div>
+          <div id="progressLabel" class="text-xs text-gray-600 mt-1"></div>
+        </div>
+
+        <div class="mt-5">
+          <div class="text-sm text-gray-600 mb-2">Contenuto archivio</div>
+          <div id="listUnzip" class="divide-y rounded-xl border bg-gray-50"></div>
+          <p id="sumUnzip" class="text-xs text-gray-500 mt-2"></p>
+        </div>
+      </div>
+
+      <!-- ZIP PANEL -->
+      <div id="panel-zip" class="hidden">
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="md:col-span-2 space-y-3">
+            <div>
+              <label class="block text-sm text-gray-700 mb-2">Aggiungi file</label>
+              <input id="filesZip" type="file" multiple class="w-full" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-700 mb-2">Oppure aggiungi una cartella</label>
+              <input id="dirZip" type="file" webkitdirectory directory mozdirectory class="w-full" />
+              <p class="text-xs text-gray-500">La struttura di cartelle verrà preservata (usa <span class="mono">webkitRelativePath</span> dove disponibile).</p>
+            </div>
+            <div id="dzZip" class="dz rounded-xl p-6 text-center text-gray-800">Trascina qui file (non cartelle)</div>
+          </div>
+          <div class="space-y-4">
+            <label class="block">
+              <span class="text-sm text-gray-700">Livello di compressione</span>
+              <input id="level" type="range" min="0" max="9" step="1" value="6" class="w-full" />
+              <div class="text-xs text-gray-500">0 = memorizza, 9 = massimo</div>
+            </label>
+            <label class="block">
+              <span class="text-sm text-gray-700">Nome archivio</span>
+              <input id="zipName" type="text" class="mt-1 w-full rounded-xl border-gray-300" value="archivio.zip" />
+            </label>
+            <button id="btnMakeZip" class="w-full px-3 py-2 rounded-xl btn" disabled>Crea ZIP</button>
+          </div>
+        </div>
+        <div class="mt-5">
+          <div class="text-sm text-gray-600 mb-2">File da includere</div>
+          <div id="listZip" class="divide-y rounded-xl border bg-gray-50"></div>
+          <p id="sumZip" class="text-xs text-gray-500 mt-2"></p>
+        </div>
+      </div>
+
+    </section>
+
+    <footer class="mt-6 text-xs text-gray-500">
+      <p>Niente upload: tutti i dati restano nel tuo browser. Alcune funzioni (drag cartelle) possono variare per compatibilità del browser.</p>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.1/umd/index.min.js" integrity="sha256-0GjcRo9hSy5/gZKZk8m+X0qF22cV8XtX4h2d7LzQnWc=" crossorigin="anonymous"></script>
+  <script>
+    const $ = (s, r=document) => r.querySelector(s);
+    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+    const human = n => n<1024? n+" B" : n<1048576? (n/1024).toFixed(1)+" KB" : (n/1048576).toFixed(2)+" MB";
+
+    // Tabs
+    const tabUnzip = $('#tab-unzip');
+    const tabZip   = $('#tab-zip');
+    const panelUnzip = $('#panel-unzip');
+    const panelZip   = $('#panel-zip');
+    tabUnzip.addEventListener('click', ()=>{ tabUnzip.setAttribute('aria-selected','true'); tabZip.setAttribute('aria-selected','false'); panelUnzip.classList.remove('hidden'); panelZip.classList.add('hidden'); });
+    tabZip.addEventListener('click', ()=>{ tabZip.setAttribute('aria-selected','true'); tabUnzip.setAttribute('aria-selected','false'); panelZip.classList.remove('hidden'); panelUnzip.classList.add('hidden'); });
+
+    // ========== UNZIP ==========
+    const zipInput = $('#zipFile');
+    const dzUnzip = $('#dzUnzip');
+    const listUnzip = $('#listUnzip');
+    const sumUnzip = $('#sumUnzip');
+    const btnSelAll = $('#btnSelAll');
+    const btnSelNone = $('#btnSelNone');
+    const btnDownloadSelected = $('#btnDownloadSelected');
+
+    const progressWrap = $('#progressWrap');
+    const progressBar = $('#progressBar');
+    const progressLabel = $('#progressLabel');
+
+    let unzipEntries = {}; // name -> Uint8Array
+    let currentArchiveType = 'zip'; // 'zip' | 'rar'
+
+    function showProgress(pct, label=''){
+      progressWrap.classList.remove('hidden');
+      progressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      progressLabel.textContent = label || '';
+    }
+    function hideProgress(){
+      progressBar.style.width = '0%';
+      progressWrap.classList.add('hidden');
+      progressLabel.textContent = '';
+    }
+    async function readFileWithProgress(file, onProgress){
+      if (file.stream) {
+        const reader = file.stream().getReader();
+        const total = file.size || 0; let received = 0; const chunks = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value); received += value.length;
+          if (total && onProgress) onProgress(Math.round(received/total*100));
+        }
+        const out = new Uint8Array(received); let off = 0;
+        for (const c of chunks) { out.set(c, off); off += c.length; }
+        return out.buffer;
+      } else {
+        const buf = await file.arrayBuffer();
+        if (onProgress) onProgress(100);
+        return buf;
+      }
+    }
+
+    function renderUnzipList() {
+      listUnzip.innerHTML = '';
+      let total = 0, count = 0;
+      const names = Object.keys(unzipEntries).sort((a,b)=> a.localeCompare(b));
+      for (const name of names) {
+        const data = unzipEntries[name];
+        const size = data.length;
+        total += size; count++;
+        const row = document.createElement('label');
+        row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
+        row.innerHTML = `
+          <input type="checkbox" class="sel" data-name="${encodeURIComponent(name)}" checked>
+          <span class="flex-1 truncate mono" title="${name}">${name}</span>
+          <span class="text-gray-500">${human(size)}</span>
+        `;
+        listUnzip.appendChild(row);
+      }
+      sumUnzip.textContent = count? `${count} file • ${human(total)}` : 'Nessun file';
+      btnDownloadSelected.disabled = count === 0;
+    }
+
+    async function handleZipFile(file) {
+      try {
+        showProgress(0, 'Lettura ZIP…');
+        const buf = await readFileWithProgress(file, p=> showProgress(p, `Lettura ZIP… ${p}%`));
+        listUnzip.innerHTML = '<div class="p-4 text-sm">Estrazione…</div>';
+        unzipEntries = {};
+        fflate.unzip(new Uint8Array(buf), { filter: () => true }, (err, data) => {
+          hideProgress();
+          if (err) {
+            listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore nell\'estrazione: ${err}</div>`;
+            return;
+          }
+          unzipEntries = data; // { name: Uint8Array }
+          renderUnzipList();
+        });
+      } catch (e) {
+        hideProgress();
+        listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore: ${e}</div>`;
+      }
+    }
+
+    async function loadUnrar(){
+      if (window.UNRAR && window.UNRAR.createExtractorFromData) return window.UNRAR;
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/unrar-js@6.1.0/dist/unrar.min.js';
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Impossibile caricare unrar-js'));
+        document.head.appendChild(s);
+      });
+      return window.UNRAR;
+    }
+
+    async function handleRarFile(file){
+      try {
+        showProgress(0, 'Lettura RAR…');
+        const buf = await readFileWithProgress(file, p=> showProgress(p, `Lettura RAR… ${p}%`));
+        listUnzip.innerHTML = '<div class="p-4 text-sm">Estrazione RAR…</div>';
+        const UNRAR = await loadUnrar();
+        const extractor = await UNRAR.createExtractorFromData({ data: new Uint8Array(buf) });
+        const list = extractor.getFileList();
+        const headers = (list && list.fileHeaders) ? list.fileHeaders : [];
+        const names = headers.map(h => h.name);
+        const result = extractor.extract({ files: names });
+        unzipEntries = {};
+        if (result && result.files) {
+          for (const f of result.files) {
+            const name = (f.fileHeader && f.fileHeader.name) || f.name;
+            const content = f.extraction || f.extract || f.content || (f.getContent ? f.getContent() : null);
+            if (name && content) {
+              const arr = content instanceof Uint8Array ? content : new Uint8Array(content);
+              unzipEntries[name] = arr;
+            }
+          }
+        }
+        hideProgress();
+        renderUnzipList();
+      } catch (e) {
+        hideProgress();
+        listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">RAR non estratto: ${e}</div>`;
+      }
+    }
+
+    async function handleArchiveFile(file){
+      const name = (file.name || '').toLowerCase();
+      if (name.endsWith('.rar')) return handleRarFile(file);
+      return handleZipFile(file);
+    }
+
+    zipInput.addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleArchiveFile(f);
+    });
+
+    ;['dragenter','dragover'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.add('bg-white'); }));
+    ;['dragleave','drop'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.remove('bg-white'); }));
+    dzUnzip.addEventListener('drop', e => {
+      const f = e.dataTransfer.files?.[0];
+      if (f) handleArchiveFile(f);
+    });
+
+    btnSelAll.addEventListener('click', ()=> $$('#listUnzip .sel').forEach(c=> c.checked = true));
+    btnSelNone.addEventListener('click', ()=> $$('#listUnzip .sel').forEach(c=> c.checked = false));
+
+    btnDownloadSelected.addEventListener('click', async ()=>{
+      const selected = $$('#listUnzip .sel').filter(c=> c.checked).map(c=> decodeURIComponent(c.dataset.name));
+      if (!selected.length) return;
+      const files = {}; let total = 0; let processed = 0;
+      for (const name of selected) total += (unzipEntries[name]?.length || 0);
+      for (const name of selected) { files[name] = unzipEntries[name]; processed += (unzipEntries[name]?.length || 0); showProgress(total? Math.round(processed/total*100) : 0, 'Preparazione file…'); }
+      showProgress(95, 'Creazione ZIP…');
+      const level = 6; // medio
+      const zipped = await new Promise((res, rej)=> fflate.zip(files, { level }, (err, data)=> err? rej(err): res(data)) );
+      const blob = new Blob([zipped], { type: 'application/zip' });
+      hideProgress();
+      downloadBlob('estratti.zip', blob);
+    });
+
+    // ========== ZIP ==========
+    const filesZip = $('#filesZip');
+    const dirZip = $('#dirZip');
+    const dzZip = $('#dzZip');
+    const listZip = $('#listZip');
+    const sumZip = $('#sumZip');
+    const levelInput = $('#level');
+    const zipName = $('#zipName');
+    const btnMakeZip = $('#btnMakeZip');
+
+    /** @type {Map<string, File>} */
+    const zipMap = new Map(); // path -> File
+
+    function renderZipList(){
+      listZip.innerHTML = '';
+      let total = 0, count = 0;
+      for (const [path, file] of Array.from(zipMap.entries()).sort((a,b)=> a[0].localeCompare(b[0]))) {
+        total += file.size; count++;
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
+        row.innerHTML = `
+          <span class="flex-1 truncate mono" title="${path}">${path}</span>
+          <span class="text-gray-500">${human(file.size)}</span>
+          <button class="text-red-600 hover:underline rm" title="Rimuovi" data-path="${encodeURIComponent(path)}">rimuovi</button>
+        `;
+        listZip.appendChild(row);
+      }
+      sumZip.textContent = count? `${count} file • ${human(total)}` : 'Nessun file';
+      btnMakeZip.disabled = count === 0;
+
+      // bind remove
+      $$('#listZip .rm').forEach(b => b.addEventListener('click', e => {
+        const p = decodeURIComponent(e.target.dataset.path);
+        zipMap.delete(p); renderZipList();
+      }));
+    }
+
+    function addFilesToZip(files){
+      for (const f of files) {
+        const path = f.webkitRelativePath && f.webkitRelativePath.length ? f.webkitRelativePath : f.name;
+        // Evita directory vuote (alcuni browser le passano come file size 0?)
+        if (!path || path.endsWith('/')) continue;
+        zipMap.set(path, f);
+      }
+      renderZipList();
+    }
+
+    filesZip.addEventListener('change', e => addFilesToZip(e.target.files));
+    dirZip.addEventListener('change', e => addFilesToZip(e.target.files));
+
+    ;['dragenter','dragover'].forEach(evt => dzZip.addEventListener(evt, e=>{ e.preventDefault(); dzZip.classList.add('bg-white'); }));
+    ;['dragleave','drop'].forEach(evt => dzZip.addEventListener(evt, e=>{ e.preventDefault(); dzZip.classList.remove('bg-white'); }));
+    dzZip.addEventListener('drop', e => {
+      e.preventDefault();
+      addFilesToZip(e.dataTransfer.files);
+    });
+
+    btnMakeZip.addEventListener('click', async ()=>{
+      const lvl = parseInt(levelInput.value||'6', 10);
+      // Leggi i file (arrayBuffer) e costruisci mappa path->Uint8Array
+      const entries = {};
+      const pairs = Array.from(zipMap.entries());
+      // Lettura progressiva
+      for (const [path, file] of pairs) {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        entries[path] = buf;
+      }
+      const zipped = await new Promise((res, rej)=> fflate.zip(entries, { level: lvl }, (err, data)=> err? rej(err): res(data)) );
+      const blob = new Blob([zipped], { type: 'application/zip' });
+      const name = (zipName.value && zipName.value.trim()) || 'archivio.zip';
+      downloadBlob(name.endsWith('.zip')? name : name + '.zip', blob);
+    });
+
+    // Helpers
+    function downloadBlob(filename, blob){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=> URL.revokeObjectURL(a.href), 2000);
+    }
+  </script>
+</body>
+</html>
