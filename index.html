@@ -3,458 +3,481 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CoPack — ZIP / Unzip (client‑side)</title>
+  <title>CoPack — ZIP/RAR Extractor & ZIP Creator</title>
+  <!-- Tailwind CSS for quick styling -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <style>
-    :root{ --brand:#0927eb; --brand-50:#eef1ff; --brand-100:#e0e5ff; }
-    html{ scroll-behavior:smooth }
-    .tab{ border:1px solid var(--brand); color:var(--brand); background:#fff }
-    .tab:hover{ background: var(--brand-100); }
-    .tab[aria-selected="true"]{ background: var(--brand); color:#fff }
-    .dz{ border:2px dashed var(--brand); background:var(--brand-50) }
-    .btn{ background:var(--brand); color:#fff }
-    .btn:hover{ filter:brightness(0.92) }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace }
+    :root{
+      /* Brand colours */
+      --brand: #0927eb;
+      --brand-light: #eef1ff;
+      --brand-dark: #0b22c5;
+    }
+    /* Tabs styling */
+    .tab {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      border: 1px solid var(--brand);
+      border-bottom: none;
+      border-radius: 0.5rem 0.5rem 0 0;
+      margin-right: 0.25rem;
+      color: var(--brand);
+      background-color: #fff;
+    }
+    .tab.active {
+      background-color: var(--brand);
+      color: #fff;
+    }
+    .tab:not(.active):hover {
+      background-color: var(--brand-light);
+    }
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed var(--brand);
+      background: var(--brand-light);
+      padding: 1.5rem;
+      text-align: center;
+      border-radius: 0.75rem;
+      color: #4b5563;
+      transition: background-color 0.2s;
+    }
+    .drop-zone.dragover {
+      background: var(--brand);
+      color: #fff;
+    }
+    /* Progress bar */
+    .progress {
+      position: relative;
+      background-color: #e5e7eb;
+      border-radius: 0.375rem;
+      overflow: hidden;
+      height: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background-color: var(--brand);
+      transition: width 0.2s;
+    }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
   <main class="max-w-5xl mx-auto p-6">
-    <header class="mb-6 flex items-center gap-4">
-      <div class="flex items-center gap-2">
-        <div class="h-10 w-10 rounded-lg bg-white border flex items-center justify-center">
-          <span class="text-lg font-bold" style="color:var(--brand)">Z</span>
+    <header class="mb-6">
+      <h1 class="text-2xl font-semibold text-center" style="color: var(--brand)">
+        Estrattore ZIP/RAR & Creatore ZIP
+      </h1>
+      <p class="text-center text-gray-600 mt-1">Con questo strumento puoi estrarre file da archivi .zip e .rar e creare un archivio ZIP dai tuoi file locali. Tutto avviene sul tuo dispositivo: nessun upload.</p>
+    </header>
+    <!-- Tabs navigation -->
+    <div class="flex mb-4 border-b border-brand-500">
+      <button id="tab-extract" class="tab active">Estrai ZIP/RAR</button>
+      <button id="tab-create" class="tab">Crea ZIP</button>
+    </div>
+    <!-- Extraction section -->
+    <section id="section-extract" class="space-y-4">
+      <div>
+        <label for="archiveInput" class="block mb-2 text-sm font-medium text-gray-700">Seleziona un archivio (.zip o .rar)</label>
+        <input id="archiveInput" type="file" accept=".zip,.rar" class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="archiveDrop" class="drop-zone">Trascina qui il tuo archivio (.zip o .rar)</div>
+      <div id="archiveInfo" class="hidden space-y-2">
+        <div class="flex items-center justify-between">
+          <div>
+            <strong>Contenuto archivio:</strong>
+          </div>
+          <div class="flex space-x-2">
+            <button id="btnSelectAll" class="px-3 py-1 text-sm border rounded" style="border-color: var(--brand); color: var(--brand)">Seleziona tutto</button>
+            <button id="btnDeselectAll" class="px-3 py-1 text-sm border rounded" style="border-color: var(--brand); color: var(--brand)">Deseleziona tutto</button>
+            <button id="btnDownloadSelected" class="px-3 py-1 text-sm border rounded" style="background-color: var(--brand); color: #fff">Scarica selezionati (ZIP)</button>
+          </div>
+        </div>
+        <div id="archiveList" class="mt-2 border rounded p-3 max-h-60 overflow-y-auto"></div>
+        <div id="extractSummary" class="text-sm text-gray-600"></div>
+        <div id="extractProgressContainer" class="hidden">
+          <div class="progress">
+            <div id="extractProgressBar" class="progress-bar"></div>
+          </div>
+          <div id="extractProgressText" class="text-xs text-gray-600 mt-1"></div>
+        </div>
+      </div>
+    </section>
+    <!-- Creation section -->
+    <section id="section-create" class="space-y-4 hidden">
+      <div>
+        <label for="filesInput" class="block mb-2 text-sm font-medium text-gray-700">Seleziona file o cartelle per creare lo ZIP</label>
+        <input id="filesInput" type="file" multiple webkitdirectory class="w-full border rounded px-3 py-2" />
+      </div>
+      <div id="filesList" class="border rounded p-3 max-h-60 overflow-y-auto hidden"></div>
+      <div class="flex flex-col md:flex-row md:items-end md:space-x-4 space-y-2 md:space-y-0">
+        <div class="flex-1">
+          <label class="block text-sm text-gray-700 mb-1" for="zipName">Nome archivio (senza estensione)</label>
+          <input id="zipName" type="text" placeholder="archivio" class="w-full border rounded px-3 py-2" />
         </div>
         <div>
-          <h1 class="text-xl font-semibold" style="color:var(--brand)">ZIP / Unzip — CoPack</h1>
-          <p class="text-sm text-gray-600">Estrai archivi <strong>.zip</strong> e <strong>.rar</strong> e crea ZIP direttamente nel browser. <strong>Nessun upload</strong>. Privacy‑friendly.</p>
+          <label class="block text-sm text-gray-700 mb-1" for="zipLevel">Livello compressione</label>
+          <select id="zipLevel" class="w-full border rounded px-3 py-2">
+            <option value="0">0 - Nessuna compressione</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5" selected>5 (default)</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9 - Massima</option>
+          </select>
+        </div>
+        <div>
+          <button id="btnCreateZip" class="px-4 py-2 rounded" style="background-color: var(--brand); color: #fff">Crea ZIP</button>
         </div>
       </div>
-    </header>
-
-    <section class="bg-white rounded-2xl shadow-sm p-5">
-      <div role="tablist" class="flex gap-2 mb-4">
-        <button id="tab-unzip" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="true">Estrai ZIP/RAR</button>
-        <button id="tab-zip" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="false">Crea ZIP</button>
-        <div class="ml-auto text-xs text-gray-500">Libreria: <a class="underline" href="https://github.com/101arrowz/fflate" target="_blank" rel="noopener">fflate (MIT)</a> + <span title="RAR extract via WASM">unrar-js (UnRAR license)</span></div>
+      <div id="createSummary" class="text-sm text-gray-600"></div>
+      <div id="createProgressContainer" class="hidden">
+        <div class="progress">
+          <div id="createProgressBar" class="progress-bar"></div>
+        </div>
+        <div id="createProgressText" class="text-xs text-gray-600 mt-1"></div>
       </div>
-
-      <!-- UNZIP PANEL -->
-      <div id="panel-unzip">
-        <div class="grid md:grid-cols-3 gap-4">
-          <div class="md:col-span-2">
-            <label class="block text-sm text-gray-700 mb-2">Seleziona un archivio <span class="mono">.zip</span> o <span class="mono">.rar</span></label>
-            <input id="zipFile" type="file" accept=".zip,.rar,application/zip,application/x-rar-compressed,application/vnd.rar" class="w-full" />
-            <div id="dzUnzip" class="dz rounded-xl mt-3 p-6 text-center text-gray-800">Trascina qui il tuo file <span class="mono">.zip</span> o <span class="mono">.rar</span></div>
-          </div>
-          <div class="space-y-3">
-            <div class="text-sm text-gray-700">Azioni</div>
-            <button id="btnSelAll" class="w-full px-3 py-2 rounded-xl border">Seleziona tutto</button>
-            <button id="btnSelNone" class="w-full px-3 py-2 rounded-xl border">Deseleziona tutto</button>
-            <button id="btnDownloadSelected" class="w-full px-3 py-2 rounded-xl btn" disabled>Scarica selezionati (ZIP)</button>
-          </div>
-        </div>
-        <!-- Barra di progresso -->
-        <div id="progressWrap" class="mt-5 hidden">
-          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div id="progressBar" class="h-full" style="background: var(--brand); width:0%"></div>
-          </div>
-          <div id="progressLabel" class="text-xs text-gray-600 mt-1"></div>
-        </div>
-
-        <div class="mt-5">
-          <div class="text-sm text-gray-600 mb-2">Contenuto archivio</div>
-          <div id="listUnzip" class="divide-y rounded-xl border bg-gray-50"></div>
-          <p id="sumUnzip" class="text-xs text-gray-500 mt-2"></p>
-          <p id="selUnzip" class="text-xs text-gray-600 mt-1"></p>
-        </div>
-      </div>
-
-      <!-- ZIP PANEL -->
-      <div id="panel-zip" class="hidden">
-        <div class="grid md:grid-cols-3 gap-4">
-          <div class="md:col-span-2 space-y-3">
-            <div>
-              <label class="block text-sm text-gray-700 mb-2">Aggiungi file</label>
-              <input id="filesZip" type="file" multiple class="w-full" />
-            </div>
-            <div>
-              <label class="block text-sm text-gray-700 mb-2">Oppure aggiungi una cartella</label>
-              <input id="dirZip" type="file" webkitdirectory directory mozdirectory class="w-full" />
-              <p class="text-xs text-gray-500">La struttura di cartelle verrà preservata (usa <span class="mono">webkitRelativePath</span> dove disponibile).</p>
-            </div>
-            <div id="dzZip" class="dz rounded-xl p-6 text-center text-gray-800">Trascina qui file (non cartelle)</div>
-          </div>
-          <div class="space-y-4">
-            <label class="block">
-              <span class="text-sm text-gray-700">Livello di compressione</span>
-              <input id="level" type="range" min="0" max="9" step="1" value="6" class="w-full" />
-              <div class="text-xs text-gray-500">0 = memorizza, 9 = massimo</div>
-            </label>
-            <label class="block">
-              <span class="text-sm text-gray-700">Nome archivio</span>
-              <input id=\"zipName\" type=\"text\" class=\"mt-1 w-full rounded-xl border border-gray-300\" value="archivio.zip" />
-            </label>
-            <button id="btnMakeZip" class="w-full px-3 py-2 rounded-xl btn" disabled>Crea ZIP</button>
-          </div>
-        </div>
-        <div id="progressWrapZip" class="mt-5 hidden">
-          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div id="progressBarZip" class="h-full" style="background: var(--brand); width:0%"></div>
-          </div>
-          <div id="progressLabelZip" class="text-xs text-gray-600 mt-1"></div>
-        </div>
-        <div class="mt-5">
-          <div class="text-sm text-gray-600 mb-2">File da includere</div>
-          <div id="listZip" class="divide-y rounded-xl border bg-gray-50"></div>
-          <p id="sumZip" class="text-xs text-gray-500 mt-2"></p>
-        </div>
-      </div>
-
     </section>
-
-    <footer class="mt-6 text-xs text-gray-500">
-      <p>Niente upload: tutti i dati restano nel tuo browser. Alcune funzioni (drag cartelle) possono variare per compatibilità del browser.</p>
-    </footer>
   </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.1/umd/index.min.js" crossorigin="anonymous"></script>
+  <!-- Dependencies -->
+  <!-- Unarchiver.js: supports ZIP, RAR, TAR, GZ, XZ, BZ2 -->
+  <script src="https://xenova.github.io/unarchiver.js/dist/unarchiver.min.js"></script>
+  <!-- JSZip for ZIP creation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script>
-    const $ = (s, r=document) => r.querySelector(s);
-    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
-    const human = n => n<1024? n+" B" : n<1048576? (n/1024).toFixed(1)+" KB" : (n/1048576).toFixed(2)+" MB";
-
-    // Tabs
-    const tabUnzip = $('#tab-unzip');
-    const tabZip   = $('#tab-zip');
-    const panelUnzip = $('#panel-unzip');
-    const panelZip   = $('#panel-zip');
-    tabUnzip.addEventListener('click', ()=>{ tabUnzip.setAttribute('aria-selected','true'); tabZip.setAttribute('aria-selected','false'); panelUnzip.classList.remove('hidden'); panelZip.classList.add('hidden'); });
-    tabZip.addEventListener('click', ()=>{ tabZip.setAttribute('aria-selected','true'); tabUnzip.setAttribute('aria-selected','false'); panelZip.classList.remove('hidden'); panelUnzip.classList.add('hidden'); });
-
-    // ========== UNZIP ==========
-    const zipInput = $('#zipFile');
-    const dzUnzip = $('#dzUnzip');
-    const listUnzip = $('#listUnzip');
-    const sumUnzip = $('#sumUnzip');
-    const selUnzip = $('#selUnzip');
-    const btnSelAll = $('#btnSelAll');
-    const btnSelNone = $('#btnSelNone');
-    const btnDownloadSelected = $('#btnDownloadSelected');
-
-    const progressWrap = $('#progressWrap');
-    const progressBar = $('#progressBar');
-    const progressLabel = $('#progressLabel');
-
-    let unzipEntries = {}; // name -> Uint8Array
-    let currentArchiveType = 'zip'; // 'zip' | 'rar'
-
-    function showProgress(pct, label=''){
-      progressWrap.classList.remove('hidden');
-      progressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
-      progressLabel.textContent = label || '';
-    }
-    function hideProgress(){
-      progressBar.style.width = '0%';
-      progressWrap.classList.add('hidden');
-      progressLabel.textContent = '';
-    }
-    // Stima compressione: molto compressibili (testo) ~30%, già compressi ~95%, default ~70%
-    function ratioForExt(name){
-      const ext = (name.split('.').pop()||'').toLowerCase();
-      const highly = ['txt','csv','json','xml','html','htm','css','js','md','ini','yml','yaml','ts'];
-      const already = ['png','jpg','jpeg','webp','avif','gif','pdf','zip','rar','7z','gz','xz','bz2','mp3','mp4','mov','mkv','avi','webm','ogg','woff','woff2'];
-      if (highly.includes(ext)) return 0.3;
-      if (already.includes(ext)) return 0.95;
-      return 0.7;
-    }
-    function estimateZipFromNames(names){
-      let est = 0; for (const n of names){ const size = (unzipEntries[n]?.length)||0; est += Math.round(size * ratioForExt(n)); }
-      return est;
-    }
-    function updateSelectedSummary(){
-      const sel = $$('#listUnzip .sel').filter(c=> c.checked).map(c=> decodeURIComponent(c.dataset.name));
-      if (!sel.length){ selUnzip.textContent = ''; return; }
-      let total = 0; for (const n of sel) total += (unzipEntries[n]?.length||0);
-      const est = estimateZipFromNames(sel);
-      selUnzip.textContent = `Selezionati: ${sel.length} • Totale: ${human(total)} • Stima ZIP: ${human(est)}`;
-    }
-    async function readFileWithProgress(file, onProgress){
-      if (file.stream) {
-        const reader = file.stream().getReader();
-        const total = file.size || 0; let received = 0; const chunks = [];
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value); received += value.length;
-          if (total && onProgress) onProgress(Math.round(received/total*100));
-        }
-        const out = new Uint8Array(received); let off = 0;
-        for (const c of chunks) { out.set(c, off); off += c.length; }
-        return out.buffer;
-      } else {
-        const buf = await file.arrayBuffer();
-        if (onProgress) onProgress(100);
-        return buf;
-      }
+    // Utility: format bytes to human readable
+    function humanReadable(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     }
 
-    function renderUnzipList() {
-      listUnzip.innerHTML = '';
-      let total = 0, count = 0;
-      const names = Object.keys(unzipEntries).sort((a,b)=> a.localeCompare(b));
-      for (const name of names) {
-        const data = unzipEntries[name];
-        const size = data.length;
-        total += size; count++;
-        const row = document.createElement('label');
-        row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
-        row.innerHTML = `
-          <input type="checkbox" class="sel" data-name="${encodeURIComponent(name)}" checked>
-          <span class="flex-1 truncate mono" title="${name}">${name}</span>
-          <span class="text-gray-500">${human(size)}</span>
-          <button class="text-blue-600 hover:underline dl" data-name="${encodeURIComponent(name)}" title="Scarica questo file">scarica<\/button>
-        `;
-        listUnzip.appendChild(row);
-      }
-      sumUnzip.textContent = $1;
-      btnDownloadSelected.disabled = count === 0;
-      updateSelectedSummary();
-      $$('#listUnzip .dl').forEach(b => b.addEventListener('click', e => {
-        const n = decodeURIComponent(e.target.dataset.name);
-        const data = unzipEntries[n];
-        if (data) downloadBlob(n, new Blob([data], { type: 'application/octet-stream' }));
-      }));
-    }
+    // Tab switching
+    const tabExtract = document.getElementById('tab-extract');
+    const tabCreate  = document.getElementById('tab-create');
+    const sectionExtract = document.getElementById('section-extract');
+    const sectionCreate  = document.getElementById('section-create');
+    tabExtract.addEventListener('click', () => {
+      tabExtract.classList.add('active');
+      tabCreate.classList.remove('active');
+      sectionExtract.classList.remove('hidden');
+      sectionCreate.classList.add('hidden');
+    });
+    tabCreate.addEventListener('click', () => {
+      tabCreate.classList.add('active');
+      tabExtract.classList.remove('active');
+      sectionCreate.classList.remove('hidden');
+      sectionExtract.classList.add('hidden');
+    });
 
-    async function handleZipFile(file) {
-      try {
-        showProgress(0, 'Lettura ZIP…');
-        const buf = await readFileWithProgress(file, p=> showProgress(p, `Lettura ZIP… ${p}%`));
-        listUnzip.innerHTML = '<div class="p-4 text-sm">Estrazione…</div>';
-        unzipEntries = {};
-        if (typeof fflate === 'undefined') {
-          hideProgress();
-          listUnzip.innerHTML = '<div class="p-4 text-sm text-red-600">Errore: libreria ZIP non caricata. Controlla la connessione o eventuali blocchi degli script.</div>';
-        } else {
-          try {
-            const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-            const dataObj = fflate.unzipSync(u8);
-            hideProgress();
-            unzipEntries = dataObj; // { name: Uint8Array }
-            renderUnzipList();
-          } catch (err) {
-            hideProgress();
-            listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore nell'estrazione ZIP: ${err}</div>`;
-          }
-        }
-      } catch (e) {
-        hideProgress();
-        listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore: ${e}</div>`;
-      }
-    }
+    // Extraction variables
+    let archiveEntries = [];
+    let selectedEntries = [];
+    const archiveInput = document.getElementById('archiveInput');
+    const archiveDrop = document.getElementById('archiveDrop');
+    const archiveInfo = document.getElementById('archiveInfo');
+    const archiveList = document.getElementById('archiveList');
+    const extractProgressContainer = document.getElementById('extractProgressContainer');
+    const extractProgressBar = document.getElementById('extractProgressBar');
+    const extractProgressText = document.getElementById('extractProgressText');
+    const extractSummary = document.getElementById('extractSummary');
+    const btnSelectAll = document.getElementById('btnSelectAll');
+    const btnDeselectAll = document.getElementById('btnDeselectAll');
+    const btnDownloadSelected = document.getElementById('btnDownloadSelected');
 
-    async function loadUnrar(){
-      if (window.UNRAR && window.UNRAR.createExtractorFromData) return window.UNRAR;
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/unrar-js@6.1.0/dist/unrar.min.js';
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Impossibile caricare unrar-js'));
-        document.head.appendChild(s);
+    // Handle file input change
+    archiveInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      handleArchiveFile(file);
+    });
+
+    // Drag & drop handlers
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+      archiveDrop.addEventListener(evt, preventDefaults, false);
+    });
+    archiveDrop.addEventListener('dragover', (e) => {
+      archiveDrop.classList.add('dragover');
+    });
+    ['dragleave','drop'].forEach(evt => {
+      archiveDrop.addEventListener(evt, () => {
+        archiveDrop.classList.remove('dragover');
       });
-      return window.UNRAR;
-    }
+    });
+    archiveDrop.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      if (dt.files && dt.files.length > 0) {
+        const file = dt.files[0];
+        handleArchiveFile(file);
+      }
+    });
 
-    async function handleRarFile(file){
+    async function handleArchiveFile(file) {
+      // Reset previous state
+      archiveEntries = [];
+      selectedEntries = [];
+      archiveList.innerHTML = '';
+      extractSummary.textContent = '';
+      extractProgressContainer.classList.add('hidden');
+      extractProgressBar.style.width = '0%';
+      extractProgressText.textContent = '';
+      btnDownloadSelected.disabled = true;
+      btnSelectAll.disabled = true;
+      btnDeselectAll.disabled = true;
+
+      // Validate extension
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext !== 'zip' && ext !== 'rar') {
+        alert('Seleziona un file .zip o .rar');
+        return;
+      }
+      archiveInfo.classList.remove('hidden');
+
       try {
-        showProgress(0, 'Lettura RAR…');
-        const buf = await readFileWithProgress(file, p=> showProgress(p, `Lettura RAR… ${p}%`));
-        listUnzip.innerHTML = '<div class="p-4 text-sm">Estrazione RAR…</div>';
-        const UNRAR = await loadUnrar();
-        const extractor = await UNRAR.createExtractorFromData({ data: new Uint8Array(buf) });
-        const list = extractor.getFileList();
-        const headers = (list && list.fileHeaders) ? list.fileHeaders : [];
-        const names = headers.map(h => h.name);
-        const result = extractor.extract({ files: names });
-        unzipEntries = {};
-        if (result && result.files) {
-          for (const f of result.files) {
-            const name = (f.fileHeader && f.fileHeader.name) || f.name;
-            const content = f.extraction || f.extract || f.content || (f.getContent ? f.getContent() : null);
-            if (name && content) {
-              const arr = content instanceof Uint8Array ? content : new Uint8Array(content);
-              unzipEntries[name] = arr;
-            }
-          }
-        }
-        hideProgress();
-        renderUnzipList();
-      } catch (e) {
-        hideProgress();
-        listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">RAR non estratto: ${e}</div>`;
+        // Open archive via Unarchiver (loads necessary libs)
+        const archive = await Unarchiver.open(file);
+        const entries = archive.entries.filter(e => e.is_file);
+        archiveEntries = entries;
+        // Default: all selected
+        selectedEntries = entries.map((_, idx) => idx);
+        // Render list
+        renderArchiveList();
+        updateExtractSummary();
+        btnDownloadSelected.disabled = entries.length === 0;
+        btnSelectAll.disabled = entries.length === 0;
+        btnDeselectAll.disabled = entries.length === 0;
+      } catch (err) {
+        console.error(err);
+        alert('Errore nell\'apertura dell\'archivio: ' + err.message);
       }
     }
 
-    async function handleArchiveFile(file){
-      const name = (file.name || '').toLowerCase();
-      if (name.endsWith('.rar')) return handleRarFile(file);
-      return handleZipFile(file);
-    }
-
-    zipInput.addEventListener('change', e => {
-      const f = e.target.files && e.target.files[0];
-      if (f) handleArchiveFile(f);
-    });
-
-    ;['dragenter','dragover'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.add('bg-white'); }));
-    ;['dragleave','drop'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.remove('bg-white'); }));
-    dzUnzip.addEventListener('drop', e => {
-      e.preventDefault();
-      const f = e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files[0] : null;
-      if (f) handleArchiveFile(f);
-    });
-
-    btnSelAll.addEventListener('click', ()=> { $$('#listUnzip .sel').forEach(c=> c.checked = true); updateSelectedSummary(); });
-    btnSelNone.addEventListener('click', ()=> { $$('#listUnzip .sel').forEach(c=> c.checked = false); updateSelectedSummary(); });
-
-    btnDownloadSelected.addEventListener('click', async ()=>{
-      const selected = $$('#listUnzip .sel').filter(c=> c.checked).map(c=> decodeURIComponent(c.dataset.name));
-      if (!selected.length) return;
-      const files = {}; let total = 0; let processed = 0; let i = 0; const n = selected.length;
-      for (const name of selected) total += (unzipEntries[name]?.length || 0);
-      for (const name of selected) {
-        files[name] = unzipEntries[name];
-        processed += (unzipEntries[name]?.length || 0);
-        i++;
-        const pct = total? Math.round(processed/total*80) : Math.round(i/n*80);
-        showProgress(pct, `Preparazione file ${i}/${n}… ${pct}%`);
-      }
-      showProgress(95, 'Creazione ZIP…');
-      const level = 6;
-      const zipped = await new Promise((res, rej)=> fflate.zip(files, { level }, (err, data)=> err? rej(err): res(data)) );
-      const blob = new Blob([zipped], { type: 'application/zip' });
-      hideProgress();
-      downloadBlob('estratti.zip', blob);
-    });
-
-    // ========== ZIP ==========
-    const filesZip = $('#filesZip');
-    const dirZip = $('#dirZip');
-    const dzZip = $('#dzZip');
-    const listZip = $('#listZip');
-    const sumZip = $('#sumZip');
-    const levelInput = $('#level');
-    const zipName = $('#zipName');
-    const btnMakeZip = $('#btnMakeZip');
-
-    const progressWrapZip = $('#progressWrapZip');
-    const progressBarZip = $('#progressBarZip');
-    const progressLabelZip = $('#progressLabelZip');
-
-    function showProgressZip(pct, label=''){
-      progressWrapZip.classList.remove('hidden');
-      progressBarZip.style.width = Math.max(0, Math.min(100, pct)) + '%';
-      progressLabelZip.textContent = label || '';
-    }
-    function hideProgressZip(){
-      progressBarZip.style.width = '0%';
-      progressWrapZip.classList.add('hidden');
-      progressLabelZip.textContent = '';
-    }
-
-    /** @type {Map<string, File>} */
-    const zipMap = new Map(); // path -> File
-
-    function renderZipList(){
-      listZip.innerHTML = '';
-      let total = 0, count = 0;
-      for (const [path, file] of Array.from(zipMap.entries()).sort((a,b)=> a[0].localeCompare(b[0]))) {
-        total += file.size; count++;
+    function renderArchiveList() {
+      archiveList.innerHTML = '';
+      archiveEntries.forEach((entry, idx) => {
         const row = document.createElement('div');
-        row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
-        row.innerHTML = `
-          <span class="flex-1 truncate mono" title="${path}">${path}</span>
-          <span class="text-gray-500">${human(file.size)}</span>
-          <button class="text-red-600 hover:underline rm" title="Rimuovi" data-path="${encodeURIComponent(path)}">rimuovi</button>
-        `;
-        listZip.appendChild(row);
-      }
-      const est = estimateZipFromZipMap();
-      sumZip.textContent = count? `${count} file • ${human(total)} • Stima ZIP: ${human(est)}` : 'Nessun file';
-      btnMakeZip.disabled = count === 0;
-
-      // bind remove
-      $$('#listZip .rm').forEach(b => b.addEventListener('click', e => {
-        const p = decodeURIComponent(e.target.dataset.path);
-        zipMap.delete(p); renderZipList();
-      }));
+        row.className = 'flex items-center justify-between py-1 border-b';
+        // Checkbox
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = selectedEntries.includes(idx);
+        cb.className = 'mr-2';
+        cb.style.accentColor = 'var(--brand)';
+        cb.addEventListener('change', () => {
+          if (cb.checked) {
+            if (!selectedEntries.includes(idx)) selectedEntries.push(idx);
+          } else {
+            selectedEntries = selectedEntries.filter(i => i !== idx);
+          }
+          updateExtractSummary();
+        });
+        // Name and sizes
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'flex-1 overflow-hidden';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = entry.name;
+        nameSpan.className = 'block truncate text-sm text-gray-800';
+        const sizeSpan = document.createElement('span');
+        const compressed = entry.size_compressed || 0;
+        const uncompressed = entry.size_uncompressed || 0;
+        sizeSpan.textContent = `${humanReadable(uncompressed)} (compresso: ${humanReadable(compressed)})`;
+        sizeSpan.className = 'block text-xs text-gray-500';
+        infoDiv.appendChild(nameSpan);
+        infoDiv.appendChild(sizeSpan);
+        // Download single button
+        const dlBtn = document.createElement('button');
+        dlBtn.textContent = 'Scarica';
+        dlBtn.className = 'text-sm px-2 py-1 border rounded';
+        dlBtn.style.borderColor = 'var(--brand)';
+        dlBtn.style.color = 'var(--brand)';
+        dlBtn.addEventListener('click', async () => {
+          dlBtn.disabled = true;
+          dlBtn.textContent = '...';
+          try {
+            const fileObj = await entry.read();
+            const data = await fileObj.arrayBuffer();
+            const blob = new Blob([data], { type: fileObj.type || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = entry.name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch(err) {
+            alert('Errore nel download del file: ' + err.message);
+          }
+          dlBtn.textContent = 'Scarica';
+          dlBtn.disabled = false;
+        });
+        // Compose row
+        row.appendChild(cb);
+        row.appendChild(infoDiv);
+        row.appendChild(dlBtn);
+        archiveList.appendChild(row);
+      });
     }
 
-    function estimateZipFromZipMap(){
-      let est = 0; for (const [p,f] of zipMap.entries()){ est += Math.round((f.size||0) * ratioForExt(p)); } return est;
+    function updateExtractSummary() {
+      // Compute number selected and total size estimated
+      let totalSelected = selectedEntries.length;
+      let totalSize = 0;
+      selectedEntries.forEach(idx => {
+        const entry = archiveEntries[idx];
+        totalSize += entry.size_uncompressed || 0;
+      });
+      extractSummary.textContent = `Selezionati: ${totalSelected} • Totale non compresso: ${humanReadable(totalSize)}`;
+      // Update download button state
+      btnDownloadSelected.disabled = totalSelected === 0;
     }
 
-    function addFilesToZip(files){
-      for (const f of files) {
-        const path = f.webkitRelativePath && f.webkitRelativePath.length ? f.webkitRelativePath : f.name;
-        // Evita directory vuote (alcuni browser le passano come file size 0?)
-        if (!path || path.endsWith('/')) continue;
-        zipMap.set(path, f);
-      }
-      renderZipList();
-    }
-
-    filesZip.addEventListener('change', e => addFilesToZip(e.target.files));
-    dirZip.addEventListener('change', e => addFilesToZip(e.target.files));
-
-    ;['dragenter','dragover'].forEach(evt => dzZip.addEventListener(evt, e=>{ e.preventDefault(); dzZip.classList.add('bg-white'); }));
-    ;['dragleave','drop'].forEach(evt => dzZip.addEventListener(evt, e=>{ e.preventDefault(); dzZip.classList.remove('bg-white'); }));
-    dzZip.addEventListener('drop', e => {
-      e.preventDefault();
-      addFilesToZip(e.dataTransfer.files);
+    btnSelectAll.addEventListener('click', () => {
+      selectedEntries = archiveEntries.map((_, idx) => idx);
+      renderArchiveList();
+      updateExtractSummary();
+    });
+    btnDeselectAll.addEventListener('click', () => {
+      selectedEntries = [];
+      renderArchiveList();
+      updateExtractSummary();
     });
 
-    btnMakeZip.addEventListener('click', async ()=>{
-      const lvl = parseInt(levelInput.value||'6', 10);
-      const entries = {};
-      const pairs = Array.from(zipMap.entries());
-      let total = 0; for (const [, f] of pairs) total += f.size || 0;
-      let processed = 0; let i = 0; const n = pairs.length;
-      for (const [path, file] of pairs) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        entries[path] = buf;
-        processed += file.size || 0; i++;
-        const pct = total ? Math.round((processed/total)*80) : Math.round(i/n*80);
-        showProgressZip(pct, `Lettura file ${i}/${n}… ${pct}%`);
+    btnDownloadSelected.addEventListener('click', async () => {
+      if (selectedEntries.length === 0) return;
+      // Prepare progress UI
+      extractProgressContainer.classList.remove('hidden');
+      extractProgressBar.style.width = '0%';
+      extractProgressText.textContent = '';
+      const zip = new JSZip();
+      // Read selected files sequentially
+      for (let i = 0; i < selectedEntries.length; i++) {
+        const idx = selectedEntries[i];
+        const entry = archiveEntries[idx];
+        extractProgressBar.style.width = `${Math.round((i / selectedEntries.length) * 50)}%`;
+        extractProgressText.textContent = `Lettura file ${i+1}/${selectedEntries.length}…`;
+        try {
+          const fileObj = await entry.read();
+          const data = await fileObj.arrayBuffer();
+          // Put into zip preserving path
+          zip.file(entry.name, data);
+        } catch(err) {
+          console.error(err);
+        }
       }
-      showProgressZip(95, 'Creazione ZIP…');
-      const zipped = await new Promise((res, rej)=> fflate.zip(entries, { level: lvl }, (err, data)=> err? rej(err): res(data)) );
-      const blob = new Blob([zipped], { type: 'application/zip' });
-      const name = (zipName.value && zipName.value.trim()) || 'archivio.zip';
-      hideProgressZip();
-      downloadBlob(name.endsWith('.zip')? name : name + '.zip', blob);
-    });
-      // Leggi i file (arrayBuffer) e costruisci mappa path->Uint8Array
-      const entries = {};
-      const pairs = Array.from(zipMap.entries());
-      // Lettura progressiva
-      for (const [path, file] of pairs) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        entries[path] = buf;
-      }
-      const zipped = await new Promise((res, rej)=> fflate.zip(entries, { level: lvl }, (err, data)=> err? rej(err): res(data)) );
-      const blob = new Blob([zipped], { type: 'application/zip' });
-      const name = (zipName.value && zipName.value.trim()) || 'archivio.zip';
-      downloadBlob(name.endsWith('.zip')? name : name + '.zip', blob);
+      // Create zip
+      extractProgressText.textContent = 'Creazione ZIP…';
+      await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, (metadata) => {
+        // metadata.percent: progress from 0-100
+        extractProgressBar.style.width = `${50 + Math.round(metadata.percent / 2)}%`;
+      }).then((blob) => {
+        // Download result
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'estratti.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      });
+      extractProgressBar.style.width = '100%';
+      extractProgressText.textContent = 'Completato';
     });
 
-    // Helpers
-    function downloadBlob(filename, blob){
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=> URL.revokeObjectURL(a.href), 2000);
+    // Creation variables
+    const filesInput = document.getElementById('filesInput');
+    const filesList = document.getElementById('filesList');
+    const zipNameInput = document.getElementById('zipName');
+    const zipLevelSelect = document.getElementById('zipLevel');
+    const btnCreateZip = document.getElementById('btnCreateZip');
+    const createSummary = document.getElementById('createSummary');
+    const createProgressContainer = document.getElementById('createProgressContainer');
+    const createProgressBar = document.getElementById('createProgressBar');
+    const createProgressText = document.getElementById('createProgressText');
+    let createFiles = [];
+
+    filesInput.addEventListener('change', (e) => {
+      const list = Array.from(e.target.files || []);
+      createFiles = list;
+      renderFilesList();
+    });
+
+    function renderFilesList() {
+      if (createFiles.length === 0) {
+        filesList.classList.add('hidden');
+        createSummary.textContent = '';
+        return;
+      }
+      filesList.classList.remove('hidden');
+      filesList.innerHTML = '';
+      let totalSize = 0;
+      createFiles.forEach(file => {
+        totalSize += file.size;
+        const row = document.createElement('div');
+        row.className = 'flex justify-between border-b py-1';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = file.webkitRelativePath || file.name;
+        nameSpan.className = 'flex-1 truncate text-sm text-gray-800';
+        const sizeSpan = document.createElement('span');
+        sizeSpan.textContent = humanReadable(file.size);
+        sizeSpan.className = 'text-xs text-gray-500';
+        row.appendChild(nameSpan);
+        row.appendChild(sizeSpan);
+        filesList.appendChild(row);
+      });
+      createSummary.textContent = `File selezionati: ${createFiles.length} • Totale: ${humanReadable(totalSize)}`;
     }
+
+    btnCreateZip.addEventListener('click', async () => {
+      if (createFiles.length === 0) {
+        alert('Seleziona almeno un file o una cartella');
+        return;
+      }
+      const name = zipNameInput.value.trim() || 'archivio';
+      const level = parseInt(zipLevelSelect.value, 10);
+      // Show progress UI
+      createProgressContainer.classList.remove('hidden');
+      createProgressBar.style.width = '0%';
+      createProgressText.textContent = '';
+      const zip = new JSZip();
+      // Add files
+      for (let i = 0; i < createFiles.length; i++) {
+        const file = createFiles[i];
+        // Determine path (use webkitRelativePath if available to keep directory structure)
+        const filePath = file.webkitRelativePath || file.name;
+        createProgressBar.style.width = `${Math.round((i / createFiles.length) * 50)}%`;
+        createProgressText.textContent = `Lettura file ${i+1}/${createFiles.length}…`;
+        const data = await file.arrayBuffer();
+        zip.file(filePath, data);
+      }
+      // Generate zip
+      createProgressText.textContent = 'Creazione ZIP…';
+      await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: level } }, (metadata) => {
+        createProgressBar.style.width = `${50 + Math.round(metadata.percent / 2)}%`;
+      }).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name + '.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      });
+      createProgressBar.style.width = '100%';
+      createProgressText.textContent = 'Completato';
+    });
   </script>
 </body>
 </html>
