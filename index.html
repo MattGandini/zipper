@@ -8,6 +8,8 @@
   <style>
     :root{ --brand:#0927eb; --brand-50:#eef1ff; --brand-100:#e0e5ff; }
     html{ scroll-behavior:smooth }
+    .tab{ border:1px solid var(--brand); color:var(--brand); background:#fff }
+    .tab:hover{ background: var(--brand-100); }
     .tab[aria-selected="true"]{ background: var(--brand); color:#fff }
     .dz{ border:2px dashed var(--brand); background:var(--brand-50) }
     .btn{ background:var(--brand); color:#fff }
@@ -63,6 +65,7 @@
           <div class="text-sm text-gray-600 mb-2">Contenuto archivio</div>
           <div id="listUnzip" class="divide-y rounded-xl border bg-gray-50"></div>
           <p id="sumUnzip" class="text-xs text-gray-500 mt-2"></p>
+          <p id="selUnzip" class="text-xs text-gray-600 mt-1"></p>
         </div>
       </div>
 
@@ -89,10 +92,16 @@
             </label>
             <label class="block">
               <span class="text-sm text-gray-700">Nome archivio</span>
-              <input id="zipName" type="text" class="mt-1 w-full rounded-xl border-gray-300" value="archivio.zip" />
+              <input id=\"zipName\" type=\"text\" class=\"mt-1 w-full rounded-xl border border-gray-300\" value="archivio.zip" />
             </label>
             <button id="btnMakeZip" class="w-full px-3 py-2 rounded-xl btn" disabled>Crea ZIP</button>
           </div>
+        </div>
+        <div id="progressWrapZip" class="mt-5 hidden">
+          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div id="progressBarZip" class="h-full" style="background: var(--brand); width:0%"></div>
+          </div>
+          <div id="progressLabelZip" class="text-xs text-gray-600 mt-1"></div>
         </div>
         <div class="mt-5">
           <div class="text-sm text-gray-600 mb-2">File da includere</div>
@@ -108,7 +117,7 @@
     </footer>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.1/umd/index.min.js" integrity="sha256-0GjcRo9hSy5/gZKZk8m+X0qF22cV8XtX4h2d7LzQnWc=" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.1/umd/index.min.js" crossorigin="anonymous"></script>
   <script>
     const $ = (s, r=document) => r.querySelector(s);
     const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
@@ -127,6 +136,7 @@
     const dzUnzip = $('#dzUnzip');
     const listUnzip = $('#listUnzip');
     const sumUnzip = $('#sumUnzip');
+    const selUnzip = $('#selUnzip');
     const btnSelAll = $('#btnSelAll');
     const btnSelNone = $('#btnSelNone');
     const btnDownloadSelected = $('#btnDownloadSelected');
@@ -147,6 +157,26 @@
       progressBar.style.width = '0%';
       progressWrap.classList.add('hidden');
       progressLabel.textContent = '';
+    }
+    // Stima compressione: molto compressibili (testo) ~30%, già compressi ~95%, default ~70%
+    function ratioForExt(name){
+      const ext = (name.split('.').pop()||'').toLowerCase();
+      const highly = ['txt','csv','json','xml','html','htm','css','js','md','ini','yml','yaml','ts'];
+      const already = ['png','jpg','jpeg','webp','avif','gif','pdf','zip','rar','7z','gz','xz','bz2','mp3','mp4','mov','mkv','avi','webm','ogg','woff','woff2'];
+      if (highly.includes(ext)) return 0.3;
+      if (already.includes(ext)) return 0.95;
+      return 0.7;
+    }
+    function estimateZipFromNames(names){
+      let est = 0; for (const n of names){ const size = (unzipEntries[n]?.length)||0; est += Math.round(size * ratioForExt(n)); }
+      return est;
+    }
+    function updateSelectedSummary(){
+      const sel = $$('#listUnzip .sel').filter(c=> c.checked).map(c=> decodeURIComponent(c.dataset.name));
+      if (!sel.length){ selUnzip.textContent = ''; return; }
+      let total = 0; for (const n of sel) total += (unzipEntries[n]?.length||0);
+      const est = estimateZipFromNames(sel);
+      selUnzip.textContent = `Selezionati: ${sel.length} • Totale: ${human(total)} • Stima ZIP: ${human(est)}`;
     }
     async function readFileWithProgress(file, onProgress){
       if (file.stream) {
@@ -182,11 +212,18 @@
           <input type="checkbox" class="sel" data-name="${encodeURIComponent(name)}" checked>
           <span class="flex-1 truncate mono" title="${name}">${name}</span>
           <span class="text-gray-500">${human(size)}</span>
+          <button class="text-blue-600 hover:underline dl" data-name="${encodeURIComponent(name)}" title="Scarica questo file">scarica<\/button>
         `;
         listUnzip.appendChild(row);
       }
-      sumUnzip.textContent = count? `${count} file • ${human(total)}` : 'Nessun file';
+      sumUnzip.textContent = $1;
       btnDownloadSelected.disabled = count === 0;
+      updateSelectedSummary();
+      $$('#listUnzip .dl').forEach(b => b.addEventListener('click', e => {
+        const n = decodeURIComponent(e.target.dataset.name);
+        const data = unzipEntries[n];
+        if (data) downloadBlob(n, new Blob([data], { type: 'application/octet-stream' }));
+      }));
     }
 
     async function handleZipFile(file) {
@@ -270,17 +307,23 @@
       if (f) handleArchiveFile(f);
     });
 
-    btnSelAll.addEventListener('click', ()=> $$('#listUnzip .sel').forEach(c=> c.checked = true));
-    btnSelNone.addEventListener('click', ()=> $$('#listUnzip .sel').forEach(c=> c.checked = false));
+    btnSelAll.addEventListener('click', ()=> { $$('#listUnzip .sel').forEach(c=> c.checked = true); updateSelectedSummary(); });
+    btnSelNone.addEventListener('click', ()=> { $$('#listUnzip .sel').forEach(c=> c.checked = false); updateSelectedSummary(); });
 
     btnDownloadSelected.addEventListener('click', async ()=>{
       const selected = $$('#listUnzip .sel').filter(c=> c.checked).map(c=> decodeURIComponent(c.dataset.name));
       if (!selected.length) return;
-      const files = {}; let total = 0; let processed = 0;
+      const files = {}; let total = 0; let processed = 0; let i = 0; const n = selected.length;
       for (const name of selected) total += (unzipEntries[name]?.length || 0);
-      for (const name of selected) { files[name] = unzipEntries[name]; processed += (unzipEntries[name]?.length || 0); showProgress(total? Math.round(processed/total*100) : 0, 'Preparazione file…'); }
+      for (const name of selected) {
+        files[name] = unzipEntries[name];
+        processed += (unzipEntries[name]?.length || 0);
+        i++;
+        const pct = total? Math.round(processed/total*80) : Math.round(i/n*80);
+        showProgress(pct, `Preparazione file ${i}/${n}… ${pct}%`);
+      }
       showProgress(95, 'Creazione ZIP…');
-      const level = 6; // medio
+      const level = 6;
       const zipped = await new Promise((res, rej)=> fflate.zip(files, { level }, (err, data)=> err? rej(err): res(data)) );
       const blob = new Blob([zipped], { type: 'application/zip' });
       hideProgress();
@@ -296,6 +339,21 @@
     const levelInput = $('#level');
     const zipName = $('#zipName');
     const btnMakeZip = $('#btnMakeZip');
+
+    const progressWrapZip = $('#progressWrapZip');
+    const progressBarZip = $('#progressBarZip');
+    const progressLabelZip = $('#progressLabelZip');
+
+    function showProgressZip(pct, label=''){
+      progressWrapZip.classList.remove('hidden');
+      progressBarZip.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      progressLabelZip.textContent = label || '';
+    }
+    function hideProgressZip(){
+      progressBarZip.style.width = '0%';
+      progressWrapZip.classList.add('hidden');
+      progressLabelZip.textContent = '';
+    }
 
     /** @type {Map<string, File>} */
     const zipMap = new Map(); // path -> File
@@ -314,7 +372,8 @@
         `;
         listZip.appendChild(row);
       }
-      sumZip.textContent = count? `${count} file • ${human(total)}` : 'Nessun file';
+      const est = estimateZipFromZipMap();
+      sumZip.textContent = count? `${count} file • ${human(total)} • Stima ZIP: ${human(est)}` : 'Nessun file';
       btnMakeZip.disabled = count === 0;
 
       // bind remove
@@ -322,6 +381,10 @@
         const p = decodeURIComponent(e.target.dataset.path);
         zipMap.delete(p); renderZipList();
       }));
+    }
+
+    function estimateZipFromZipMap(){
+      let est = 0; for (const [p,f] of zipMap.entries()){ est += Math.round((f.size||0) * ratioForExt(p)); } return est;
     }
 
     function addFilesToZip(files){
@@ -346,6 +409,24 @@
 
     btnMakeZip.addEventListener('click', async ()=>{
       const lvl = parseInt(levelInput.value||'6', 10);
+      const entries = {};
+      const pairs = Array.from(zipMap.entries());
+      let total = 0; for (const [, f] of pairs) total += f.size || 0;
+      let processed = 0; let i = 0; const n = pairs.length;
+      for (const [path, file] of pairs) {
+        const buf = new Uint8Array(await file.arrayBuffer());
+        entries[path] = buf;
+        processed += file.size || 0; i++;
+        const pct = total ? Math.round((processed/total)*80) : Math.round(i/n*80);
+        showProgressZip(pct, `Lettura file ${i}/${n}… ${pct}%`);
+      }
+      showProgressZip(95, 'Creazione ZIP…');
+      const zipped = await new Promise((res, rej)=> fflate.zip(entries, { level: lvl }, (err, data)=> err? rej(err): res(data)) );
+      const blob = new Blob([zipped], { type: 'application/zip' });
+      const name = (zipName.value && zipName.value.trim()) || 'archivio.zip';
+      hideProgressZip();
+      downloadBlob(name.endsWith('.zip')? name : name + '.zip', blob);
+    });
       // Leggi i file (arrayBuffer) e costruisci mappa path->Uint8Array
       const entries = {};
       const pairs = Array.from(zipMap.entries());
