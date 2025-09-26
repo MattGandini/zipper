@@ -232,15 +232,21 @@
         const buf = await readFileWithProgress(file, p=> showProgress(p, `Lettura ZIP… ${p}%`));
         listUnzip.innerHTML = '<div class="p-4 text-sm">Estrazione…</div>';
         unzipEntries = {};
-        fflate.unzip(new Uint8Array(buf), { filter: () => true }, (err, data) => {
+        if (typeof fflate === 'undefined') {
           hideProgress();
-          if (err) {
-            listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore nell\'estrazione: ${err}</div>`;
-            return;
+          listUnzip.innerHTML = '<div class="p-4 text-sm text-red-600">Errore: libreria ZIP non caricata. Controlla la connessione o eventuali blocchi degli script.</div>';
+        } else {
+          try {
+            const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+            const dataObj = fflate.unzipSync(u8);
+            hideProgress();
+            unzipEntries = dataObj; // { name: Uint8Array }
+            renderUnzipList();
+          } catch (err) {
+            hideProgress();
+            listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore nell'estrazione ZIP: ${err}</div>`;
           }
-          unzipEntries = data; // { name: Uint8Array }
-          renderUnzipList();
-        });
+        }
       } catch (e) {
         hideProgress();
         listUnzip.innerHTML = `<div class="p-4 text-sm text-red-600">Errore: ${e}</div>`;
@@ -303,7 +309,8 @@
     ;['dragenter','dragover'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.add('bg-white'); }));
     ;['dragleave','drop'].forEach(evt => dzUnzip.addEventListener(evt, e=>{ e.preventDefault(); dzUnzip.classList.remove('bg-white'); }));
     dzUnzip.addEventListener('drop', e => {
-      const f = e.dataTransfer.files?.[0];
+      e.preventDefault();
+      const f = e.dataTransfer && e.dataTransfer.files ? e.dataTransfer.files[0] : null;
       if (f) handleArchiveFile(f);
     });
 
