@@ -1,410 +1,137 @@
-<!doctype html>
-<html lang="it">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CoPack — ZIP/RAR Extractor & ZIP Creator</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <style>
-    :root{ --brand:#0927eb; --brand-50:#eef1ff; --brand-100:#e0e5ff; }
-    html{scroll-behavior:smooth}
-    .tab{ border:1px solid var(--brand); color:var(--brand); background:#fff }
-    .tab[aria-selected="true"]{ background: var(--brand); color:#fff }
-    .tab:hover{ background: var(--brand-100); }
-    .btn{ background:var(--brand); color:#fff }
-    .btn:hover{ filter:brightness(0.92) }
-    .dz{ border:2px dashed var(--brand); background:var(--brand-50) }
-    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace }
-  </style>
-</head>
-<body class="bg-gray-50 text-gray-900">
-  <main class="max-w-5xl mx-auto p-6">
-    <header class="mb-6 flex items-center gap-4">
-      <div class="h-10 w-10 rounded-lg bg-white border flex items-center justify-center">
-        <span class="text-lg font-bold" style="color:var(--brand)">A</span>
-      </div>
-      <div>
-        <h1 class="text-xl font-semibold" style="color:var(--brand)">Archivi — Estrai / Crea ZIP</h1>
-        <p class="text-sm text-gray-600">Tutto <strong>client-side</strong>, nessun upload.</p>
-      </div>
-    </header>
+<!-- ===== EXTRACT (fixed) ===== -->
+<script>
+  const extractInput = $('#extractInput');
+  const extractDrop = $('#extractDrop');
+  const entriesList = $('#entriesList');
+  const entriesSummary = $('#entriesSummary');
+  const btnSelectAll = $('#btnSelectAll');
+  const btnSelectNone = $('#btnSelectNone');
+  const btnDownloadSelected = $('#btnDownloadSelected');
+  const extractProgress = $('#extractProgress');
+  const extractProgressBar = $('#extractProgressBar');
+  const extractProgressText = $('#extractProgressText');
 
-    <section class="bg-white rounded-2xl shadow-sm p-5">
-      <div role="tablist" class="flex gap-2 mb-4">
-        <button id="tab-extract" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="true">Estrai ZIP/RAR</button>
-        <button id="tab-create" role="tab" class="px-3 py-2 rounded-xl tab" aria-selected="false">Crea ZIP</button>
-      </div>
+  let archive = null;                  // Unarchiver archive
+  let archiveEntries = [];             // [{ name, size, read:()=>Promise<File> }]
+  let selectedEntries = [];            // [name, ...]
 
-      <!-- ===== EXTRACT (lasciata invariata) ===== -->
-      <div id="panel-extract">
-        <div class="grid md:grid-cols-3 gap-4">
-          <div class="md:col-span-2">
-            <label class="block text-sm text-gray-700 mb-2">Seleziona un archivio <span class="mono">.zip</span> o <span class="mono">.rar</span></label>
-            <input id="extractInput" type="file" accept=".zip,.rar,application/zip,application/x-rar-compressed,application/vnd.rar" class="w-full" />
-            <div id="extractDrop" class="dz rounded-xl mt-3 p-6 text-center text-gray-800">Trascina qui un .zip o .rar</div>
-          </div>
-          <div class="space-y-3">
-            <div class="text-sm text-gray-700">Azioni</div>
-            <button id="btnSelectAll" class="w-full px-3 py-2 rounded-xl border">Seleziona tutto</button>
-            <button id="btnSelectNone" class="w-full px-3 py-2 rounded-xl border">Deseleziona tutto</button>
-            <button id="btnDownloadSelected" class="w-full px-3 py-2 rounded-xl btn" disabled>Scarica selezionati</button>
-          </div>
-        </div>
+  function showExtractProgress(pct, msg=''){
+    extractProgress.classList.remove('hidden');
+    extractProgressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    extractProgressText.textContent = msg;
+  }
+  function hideExtractProgress(){
+    extractProgress.classList.add('hidden');
+    extractProgressBar.style.width = '0%';
+    extractProgressText.textContent = '';
+  }
 
-        <div id="extractProgress" class="mt-5 hidden">
-          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div id="extractProgressBar" class="h-full" style="background: var(--brand); width:0%"></div>
-          </div>
-          <div id="extractProgressText" class="text-xs text-gray-600 mt-1"></div>
-        </div>
+  async function openArchive(file){
+    entriesList.innerHTML = '<div class="p-3 text-sm">Lettura archivio…</div>';
+    entriesSummary.textContent = '';
+    hideExtractProgress();
+    archiveEntries = [];
+    selectedEntries = [];
+    btnDownloadSelected.disabled = true;
 
-        <div class="mt-5">
-          <div class="text-sm text-gray-600 mb-2">Contenuto archivio</div>
-          <div id="entriesList" class="divide-y rounded-xl border bg-gray-50"></div>
-          <p id="entriesSummary" class="text-xs text-gray-500 mt-2"></p>
-        </div>
-      </div>
+    try {
+      archive = await Unarchiver.open(file); // auto ZIP/RAR
+      entriesList.innerHTML = '';
 
-      <!-- ===== CREATE (corretta secondo le tue richieste) ===== -->
-      <div id="panel-create" class="hidden">
-        <div class="grid md:grid-cols-3 gap-4">
-          <div class="md:col-span-2 space-y-3">
-            <div>
-              <label class="block text-sm text-gray-700 mb-2">Scegli file (qualsiasi tipo)</label>
-              <!-- SOLO file: multi-file -->
-              <input id="filesPicker" type="file" multiple class="w-full" />
-            </div>
-            <div>
-              <label class="block text-sm text-gray-700 mb-2">Oppure scegli cartella</label>
-              <!-- SOLO cartelle (preserva la struttura) -->
-              <input id="foldersPicker" type="file" webkitdirectory directory class="w-full" />
-            </div>
+      let count = 0, total = 0;
 
-            <div id="createDrop" class="dz rounded-xl p-6 text-center text-gray-800">
-              Trascina qui file e/o cartelle (multi-selezione)
-            </div>
-          </div>
-          <div class="space-y-4">
-            <label class="block">
-              <span class="text-sm text-gray-700">Nome archivio</span>
-              <input id="zipName" type="text" class="mt-1 w-full rounded-xl border border-gray-300" value="archivio.zip" />
-            </label>
-            <label class="block">
-              <span class="text-sm text-gray-700">Livello di compressione</span>
-              <input id="zipLevel" type="range" min="0" max="9" step="1" value="6" class="w-full" />
-              <div class="text-xs text-gray-500">0 = memorizza, 9 = massimo</div>
-            </label>
-            <button id="btnCreateZip" class="w-full px-3 py-2 rounded-xl btn" disabled>Crea ZIP</button>
-          </div>
-        </div>
+      for (const entry of archive.entries) {
+        if (!entry.is_file) continue;                    // <-- usa is_file
+        const name = entry.name;                         // <-- usa name
+        const size = entry.size_uncompressed || 0;       // <-- usa size_uncompressed
+        count++; total += size;
 
-        <div id="createProgress" class="mt-5 hidden">
-          <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div id="createProgressBar" class="h-full" style="background: var(--brand); width:0%"></div>
-          </div>
-          <div id="createProgressText" class="text-xs text-gray-600 mt-1"></div>
-        </div>
-
-        <div class="mt-5">
-          <div class="text-sm text-gray-600 mb-2">File in coda</div>
-          <div id="filesList" class="divide-y rounded-xl border bg-gray-50"></div>
-          <p id="filesSummary" class="text-xs text-gray-500 mt-2"></p>
-        </div>
-      </div>
-    </section>
-
-    <footer class="mt-6 text-xs text-gray-500">
-      <p>Privacy: tutto avviene nel browser. Alcune funzioni (drop cartelle) possono variare per compatibilità del browser.</p>
-    </footer>
-  </main>
-
-  <!-- Librerie -->
-  <script src="https://xenova.github.io/unarchiver.js/dist/unarchiver.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-
-  <script>
-    const $ = (s,r=document)=>r.querySelector(s);
-    const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
-    const human = n => n<1024? n+" B" : n<1048576? (n/1024).toFixed(1)+" KB" : (n/1048576).toFixed(2)+" MB";
-
-    /* ----- Tabs ----- */
-    const tabExtract = $('#tab-extract');
-    const tabCreate = $('#tab-create');
-    const panelExtract = $('#panel-extract');
-    const panelCreate = $('#panel-create');
-    tabExtract.addEventListener('click', ()=>{ tabExtract.setAttribute('aria-selected','true'); tabCreate.setAttribute('aria-selected','false'); panelExtract.classList.remove('hidden'); panelCreate.classList.add('hidden'); });
-    tabCreate.addEventListener('click', ()=>{ tabCreate.setAttribute('aria-selected','true'); tabExtract.setAttribute('aria-selected','false'); panelCreate.classList.remove('hidden'); panelExtract.classList.add('hidden'); });
-
-    /* =========================================
-       ===============  EXTRACT  ===============
-       (lasciata invariata funzionalmente)
-       ========================================= */
-    const extractInput = $('#extractInput');
-    const extractDrop = $('#extractDrop');
-    const entriesList = $('#entriesList');
-    const entriesSummary = $('#entriesSummary');
-    const btnSelectAll = $('#btnSelectAll');
-    const btnSelectNone = $('#btnSelectNone');
-    const btnDownloadSelected = $('#btnDownloadSelected');
-    const extractProgress = $('#extractProgress');
-    const extractProgressBar = $('#extractProgressBar');
-    const extractProgressText = $('#extractProgressText');
-
-    let archive = null;             // Unarchiver Archive
-    let archiveEntries = [];        // [{path, size, read:()=>Promise<File>}]
-    let selectedEntries = [];       // paths selezionati
-
-    function showExtractProgress(pct, msg=''){
-      extractProgress.classList.remove('hidden');
-      extractProgressBar.style.width = Math.max(0,Math.min(100,pct))+'%';
-      extractProgressText.textContent = msg;
-    }
-    function hideExtractProgress(){
-      extractProgress.classList.add('hidden');
-      extractProgressBar.style.width = '0%';
-      extractProgressText.textContent = '';
-    }
-
-    async function openArchive(file){
-      entriesList.innerHTML = '<div class="p-3 text-sm">Lettura archivio…</div>';
-      hideExtractProgress();
-      archiveEntries = []; selectedEntries = []; btnDownloadSelected.disabled = true;
-
-      try{
-        archive = await Unarchiver.open(file); // autodetect ZIP/RAR
-        entriesList.innerHTML = '';
-        for (const entry of archive.entries){
-          if (entry.isDirectory) continue;
-          const row = document.createElement('label');
-          row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
-          row.innerHTML = `
-            <input type="checkbox" class="sel" data-path="${entry.path}">
-            <span class="flex-1 truncate mono" title="${entry.path}">${entry.path}</span>
-            <span class="text-gray-500">${human(entry.size||0)}</span>
-            <button class="text-blue-600 hover:underline dl" data-path="${entry.path}">scarica</button>
-          `;
-          entriesList.appendChild(row);
-
-          archiveEntries.push({
-            path: entry.path,
-            size: entry.size||0,
-            read: ()=> entry.read() // => Promise<File>
-          });
-        }
-        entriesSummary.textContent = `${archiveEntries.length} file`;
-        $$('#entriesList .sel').forEach(c=> c.addEventListener('change', refreshSelection));
-        $$('#entriesList .dl').forEach(b=> b.addEventListener('click', async e=>{
-          const p = e.currentTarget.dataset.path;
-          const ent = archiveEntries.find(x=>x.path===p);
-          if (!ent) return;
-          const file = await ent.read();
-          downloadBlob(p.split('/').pop()||'file', file);
-        }));
-      }catch(err){
-        entriesList.innerHTML = `<div class="p-3 text-sm text-red-600">Errore apertura archivio: ${err}</div>`;
-      }
-    }
-
-    function refreshSelection(){
-      selectedEntries = $$('#entriesList .sel').filter(c=> c.checked).map(c=> c.dataset.path);
-      btnDownloadSelected.disabled = selectedEntries.length===0;
-    }
-
-    extractInput.addEventListener('change', e=>{
-      const f = e.target.files?.[0]; if (f) openArchive(f);
-    });
-    ['dragenter','dragover'].forEach(evt=> extractDrop.addEventListener(evt, e=>{ e.preventDefault(); extractDrop.classList.add('bg-white'); }));
-    ['dragleave','drop'].forEach(evt=> extractDrop.addEventListener(evt, e=>{ e.preventDefault(); extractDrop.classList.remove('bg-white'); }));
-    extractDrop.addEventListener('drop', e=>{
-      const f = e.dataTransfer?.files?.[0]; if (f) openArchive(f);
-    });
-
-    // Scarica selezionati: ora SCARICA FILE SINGOLI (non crea un nuovo ZIP)
-    btnDownloadSelected.addEventListener('click', async ()=>{
-      if (selectedEntries.length===0) return;
-      showExtractProgress(0, 'Preparazione download…');
-      for (let i=0; i<selectedEntries.length; i++){
-        const p = selectedEntries[i];
-        const ent = archiveEntries.find(x=>x.path===p);
-        if (!ent) continue;
-        const file = await ent.read(); // File
-        downloadBlob(p.split('/').pop()||'file', file);
-        const pct = Math.round(((i+1)/selectedEntries.length)*100);
-        showExtractProgress(pct, `Scaricamento ${i+1}/${selectedEntries.length}…`);
-      }
-      setTimeout(hideExtractProgress, 500);
-    });
-
-    /* =========================================
-       ===============  CREATE  ================
-       (fix: picker file, picker cartelle,
-        drop multi-file/multi-cartella)
-       ========================================= */
-    const filesPicker = $('#filesPicker');
-    const foldersPicker = $('#foldersPicker');
-    const createDrop = $('#createDrop');
-    const zipName = $('#zipName');
-    const zipLevel = $('#zipLevel');
-    const btnCreateZip = $('#btnCreateZip');
-    const filesList = $('#filesList');
-    const filesSummary = $('#filesSummary');
-    const createProgress = $('#createProgress');
-    const createProgressBar = $('#createProgressBar');
-    const createProgressText = $('#createProgressText');
-
-    // mappa pathRelativo -> File
-    const toZip = new Map();
-
-    function renderFiles(){
-      filesList.innerHTML = '';
-      let total=0, count=0;
-      for (const [path, file] of Array.from(toZip.entries()).sort((a,b)=>a[0].localeCompare(b[0]))){
-        total += file.size; count++;
-        const row = document.createElement('div');
+        const row = document.createElement('label');
         row.className = 'flex items-center gap-3 px-3 py-2 text-sm';
         row.innerHTML = `
-          <span class="flex-1 truncate mono" title="${path}">${path}</span>
-          <span class="text-gray-500">${human(file.size)}</span>
-          <button class="text-red-600 hover:underline rm" data-path="${encodeURIComponent(path)}">rimuovi</button>
+          <input type="checkbox" class="sel" data-name="${name}">
+          <span class="flex-1 truncate mono" title="${name}">${name}</span>
+          <span class="text-gray-500">${human(size)}</span>
+          <button class="text-blue-600 hover:underline dl" data-name="${name}">scarica</button>
         `;
-        filesList.appendChild(row);
-      }
-      filesSummary.textContent = count ? `${count} file • ${human(total)}` : 'Nessun file';
-      btnCreateZip.disabled = count===0;
+        entriesList.appendChild(row);
 
-      $$('#filesList .rm').forEach(b=>{
-        b.addEventListener('click', e=>{
-          const p = decodeURIComponent(e.currentTarget.dataset.path);
-          toZip.delete(p); renderFiles();
+        // Salviamo il reader per il download
+        archiveEntries.push({
+          name, size,
+          read: () => entry.read() // Promise<File>
         });
-      });
-    }
-
-    function addFileToZip(file, relPath){
-      if (!relPath || relPath.endsWith('/')) return;
-      // se duplicato, sovrascrive (comportamento semplice)
-      toZip.set(relPath, file);
-    }
-
-    // --- Picker SOLO file (multi) ---
-    filesPicker.addEventListener('change', e=>{
-      const list = e.target.files;
-      for (const f of list){
-        const rel = f.name; // no path => files “piatti”
-        addFileToZip(f, rel);
-      }
-      renderFiles();
-      // consenti nuove aggiunte in seguito (non resetto la mappa)
-      filesPicker.value = '';
-    });
-
-    // --- Picker SOLO cartelle (webkitdirectory) ---
-    foldersPicker.addEventListener('change', e=>{
-      const list = e.target.files;
-      for (const f of list){
-        const rel = f.webkitRelativePath && f.webkitRelativePath.length ? f.webkitRelativePath : f.name;
-        addFileToZip(f, rel);
-      }
-      renderFiles();
-      foldersPicker.value = '';
-    });
-
-    // --- Drag&Drop: file E cartelle, multipli ---
-    ['dragenter','dragover'].forEach(evt=> createDrop.addEventListener(evt, e=>{ e.preventDefault(); createDrop.classList.add('bg-white'); }));
-    ['dragleave','drop'].forEach(evt=> createDrop.addEventListener(evt, e=>{ e.preventDefault(); createDrop.classList.remove('bg-white'); }));
-
-    createDrop.addEventListener('drop', async e=>{
-      const items = e.dataTransfer?.items;
-      const files = e.dataTransfer?.files;
-
-      // Se abbiamo DataTransferItemList, proviamo webkitGetAsEntry per cartelle
-      if (items && items.length){
-        await addDataTransferItems(items);
-      } else if (files && files.length){
-        // Fallback: aggiungi tutti i file
-        for (const f of files){ addFileToZip(f, f.name); }
-      }
-      renderFiles();
-    });
-
-    async function addDataTransferItems(items){
-      const tasks = [];
-      for (const it of items){
-        if (it.kind !== 'file') continue;
-        const entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; // non standard, ma diffuso:contentReference[oaicite:0]{index=0}
-        if (!entry){
-          const f = it.getAsFile(); if (f) addFileToZip(f, f.name);
-          continue;
-        }
-        tasks.push(walkEntry(entry, ''));
-      }
-      await Promise.all(tasks);
-    }
-
-    function walkEntry(entry, prefix){
-      return new Promise((resolve, reject)=>{
-        if (entry.isFile){
-          entry.file(file=>{ addFileToZip(file, prefix + entry.name); resolve(); }, reject);
-        } else if (entry.isDirectory){
-          const reader = entry.createReader();
-          reader.readEntries(async entries=>{
-            for (const ent of entries){
-              await walkEntry(ent, prefix + entry.name + '/');
-            }
-            resolve();
-          }, reject);
-        } else {
-          resolve();
-        }
-      });
-    }
-
-    // --- Crea ZIP ---
-    function showCreateProgress(pct, msg=''){
-      createProgress.classList.remove('hidden');
-      createProgressBar.style.width = Math.max(0,Math.min(100,pct))+'%';
-      createProgressText.textContent = msg;
-    }
-    function hideCreateProgress(){
-      createProgress.classList.add('hidden');
-      createProgressBar.style.width = '0%';
-      createProgressText.textContent = '';
-    }
-
-    btnCreateZip.addEventListener('click', async ()=>{
-      const lvl = parseInt(zipLevel.value||'6', 10);
-      const name = (zipName.value && zipName.value.trim()) || 'archivio.zip';
-      const pairs = Array.from(toZip.entries());
-      if (!pairs.length) return;
-
-      showCreateProgress(0, 'Preparazione file…');
-      const zip = new JSZip();
-
-      // Lettura progressiva (stimata): 0 → 80%
-      let total = 0; for (const [,f] of pairs) total += f.size||0;
-      let processed = 0;
-      for (let i=0;i<pairs.length;i++){
-        const [rel, file] = pairs[i];
-        zip.file(rel, file, { compression: lvl>0 ? 'DEFLATE' : 'STORE', compressionOptions: lvl>0 ? { level: lvl } : undefined });
-        processed += file.size||0;
-        const pct = total ? Math.round((processed/total)*80) : Math.round(((i+1)/pairs.length)*80);
-        showCreateProgress(pct, `Aggiunta file ${i+1}/${pairs.length}… ${pct}%`);
-        await new Promise(r=> setTimeout(r, 0)); // yield UI
       }
 
-      showCreateProgress(90, 'Creazione ZIP…');
-      const blob = await zip.generateAsync({ type:'blob' });
-      hideCreateProgress();
-      downloadBlob(name.endsWith('.zip')? name : name + '.zip', blob);
-    });
+      entriesSummary.textContent = count ? `${count} file • ${human(total)}` : 'Nessun file';
 
-    function downloadBlob(filename, blob){
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=> URL.revokeObjectURL(a.href), 1500);
+      // Eventi su checkbox/dl creati dinamicamente
+      $$('#entriesList .sel').forEach(c => c.addEventListener('change', refreshSelection));
+      $$('#entriesList .dl').forEach(b => b.addEventListener('click', onDownloadSingle));
+    } catch (err) {
+      entriesList.innerHTML = `<div class="p-3 text-sm text-red-600">Errore apertura archivio: ${err}</div>`;
     }
-  </script>
-</body>
-</html>
+  }
+
+  function refreshSelection(){
+    selectedEntries = $$('#entriesList .sel')
+      .filter(c => c.checked)
+      .map(c => c.dataset.name);
+    btnDownloadSelected.disabled = selectedEntries.length === 0;
+  }
+
+  async function onDownloadSingle(e){
+    const name = e.currentTarget.dataset.name;
+    const ent = archiveEntries.find(x => x.name === name);
+    if (!ent) return;
+    const file = await ent.read();                       // File
+    downloadBlob(name.split('/').pop() || 'file', file); // scarica singolo
+  }
+
+  // Input file
+  extractInput.addEventListener('change', e => {
+    const f = e.target.files?.[0];
+    if (f) openArchive(f);
+  });
+
+  // Drag&Drop
+  ['dragenter','dragover'].forEach(evt =>
+    extractDrop.addEventListener(evt, e => { e.preventDefault(); extractDrop.classList.add('bg-white'); })
+  );
+  ['dragleave','drop'].forEach(evt =>
+    extractDrop.addEventListener(evt, e => { e.preventDefault(); extractDrop.classList.remove('bg-white'); })
+  );
+  extractDrop.addEventListener('drop', e => {
+    const f = e.dataTransfer?.files?.[0];
+    if (f) openArchive(f);
+  });
+
+  // Seleziona/Deseleziona tutto
+  btnSelectAll.addEventListener('click', () => {
+    $$('#entriesList .sel').forEach(c => c.checked = true);
+    refreshSelection();
+  });
+  btnSelectNone.addEventListener('click', () => {
+    $$('#entriesList .sel').forEach(c => c.checked = false);
+    refreshSelection();
+  });
+
+  // Scarica selezionati (uno per uno, niente ZIP)
+  btnDownloadSelected.addEventListener('click', async () => {
+    if (!selectedEntries.length) return;
+    showExtractProgress(0, 'Preparazione download…');
+
+    for (let i = 0; i < selectedEntries.length; i++){
+      const name = selectedEntries[i];
+      const ent = archiveEntries.find(x => x.name === name);
+      if (!ent) continue;
+
+      const file = await ent.read();
+      downloadBlob(name.split('/').pop() || 'file', file);
+
+      const pct = Math.round(((i + 1) / selectedEntries.length) * 100);
+      showExtractProgress(pct, `Scaricamento ${i + 1}/${selectedEntries.length}…`);
+    }
+    setTimeout(hideExtractProgress, 400);
+  });
+</script>
