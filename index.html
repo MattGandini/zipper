@@ -90,7 +90,8 @@
           <div class="flex space-x-2">
             <button id="btnSelectAll" class="px-3 py-1 text-sm border rounded" style="border-color: var(--brand); color: var(--brand)">Seleziona tutto</button>
             <button id="btnDeselectAll" class="px-3 py-1 text-sm border rounded" style="border-color: var(--brand); color: var(--brand)">Deseleziona tutto</button>
-            <button id="btnDownloadSelected" class="px-3 py-1 text-sm border rounded" style="background-color: var(--brand); color: #fff">Scarica selezionati (ZIP)</button>
+            <!-- The download selected button no longer creates a ZIP; it will download each selected entry individually -->
+            <button id="btnDownloadSelected" class="px-3 py-1 text-sm border rounded" style="background-color: var(--brand); color: #fff">Scarica selezionati</button>
           </div>
         </div>
         <div id="archiveList" class="mt-2 border rounded p-3 max-h-60 overflow-y-auto"></div>
@@ -109,6 +110,8 @@
         <label for="filesInput" class="block mb-2 text-sm font-medium text-gray-700">Seleziona file o cartelle per creare lo ZIP</label>
         <input id="filesInput" type="file" multiple webkitdirectory class="w-full border rounded px-3 py-2" />
       </div>
+      <!-- Drag & drop area for adding files/directories to the ZIP creation queue -->
+      <div id="createDrop" class="drop-zone">Trascina qui file o cartelle per aggiungerli all'archivio</div>
       <div id="filesList" class="border rounded p-3 max-h-60 overflow-y-auto hidden"></div>
       <div class="flex flex-col md:flex-row md:items-end md:space-x-4 space-y-2 md:space-y-0">
         <div class="flex-1">
@@ -355,42 +358,34 @@
 
     btnDownloadSelected.addEventListener('click', async () => {
       if (selectedEntries.length === 0) return;
-      // Prepare progress UI
+      // Show progress UI
       extractProgressContainer.classList.remove('hidden');
       extractProgressBar.style.width = '0%';
       extractProgressText.textContent = '';
-      const zip = new JSZip();
-      // Read selected files sequentially
+      // Sequentially download each selected entry
       for (let i = 0; i < selectedEntries.length; i++) {
         const idx = selectedEntries[i];
         const entry = archiveEntries[idx];
-        extractProgressBar.style.width = `${Math.round((i / selectedEntries.length) * 50)}%`;
-        extractProgressText.textContent = `Lettura file ${i+1}/${selectedEntries.length}…`;
+        // Update progress bar and text (full 100% spread across all files)
+        extractProgressBar.style.width = `${Math.round(((i) / selectedEntries.length) * 100)}%`;
+        extractProgressText.textContent = `Scaricamento file ${i+1}/${selectedEntries.length}…`;
         try {
           const fileObj = await entry.read();
           const data = await fileObj.arrayBuffer();
-          // Put into zip preserving path
-          zip.file(entry.name, data);
+          const blob = new Blob([data], { type: fileObj.type || 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = entry.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
         } catch(err) {
           console.error(err);
         }
       }
-      // Create zip
-      extractProgressText.textContent = 'Creazione ZIP…';
-      await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, (metadata) => {
-        // metadata.percent: progress from 0-100
-        extractProgressBar.style.width = `${50 + Math.round(metadata.percent / 2)}%`;
-      }).then((blob) => {
-        // Download result
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'estratti.zip';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      });
+      // Finish progress
       extractProgressBar.style.width = '100%';
       extractProgressText.textContent = 'Completato';
     });
@@ -398,6 +393,7 @@
     // Creation variables
     const filesInput = document.getElementById('filesInput');
     const filesList = document.getElementById('filesList');
+    const createDrop = document.getElementById('createDrop');
     const zipNameInput = document.getElementById('zipName');
     const zipLevelSelect = document.getElementById('zipLevel');
     const btnCreateZip = document.getElementById('btnCreateZip');
@@ -409,9 +405,163 @@
 
     filesInput.addEventListener('change', (e) => {
       const list = Array.from(e.target.files || []);
-      createFiles = list;
+      // Append new files to existing createFiles; maintain relative paths
+      list.forEach(file => {
+        // For files chosen via input, webkitRelativePath is available if a directory is selected
+        // Use the provided webkitRelativePath as full path; otherwise default to the file name
+        const relPath = file.webkitRelativePath || file.name;
+        // Assign to webkitRelativePath (ensures consistent use in render)
+        file.fullPath = relPath;
+        file.webkitRelativePath = relPath;
+        createFiles.push(file);
+      });
       renderFilesList();
     });
+
+    /**
+     * Recursively traverse a FileSystemEntry (file or directory) and gather File objects with
+     * an attached fullPath reflecting their relative location inside the dropped hierarchy.
+     * @param {FileSystemEntry} entry
+     * @param {string} pathPrefix
+     * @returns {Promise<File[]>}
+     */
+    async function traverseEntry(entry, pathPrefix) {
+      return new Promise((resolve, reject) => {
+        try {
+          if (entry.isFile) {
+            entry.file((file) => {
+              file.fullPath = pathPrefix + file.name;
+              // Mirror to webkitRelativePath so that render uses it
+              file.webkitRelativePath = file.fullPath;
+              resolve([file]);
+            }, (err) => reject(err));
+          } else if (entry.isDirectory) {
+            const dirReader = entry.createReader();
+            const entries = [];
+            const readEntries = () => {
+              dirReader.readEntries(async (batch) => {
+                if (batch.length === 0) {
+                  // done
+                  // Wait for all child promises
+                  const promises = entries.map(ent => traverseEntry(ent, pathPrefix + entry.name + '/'));
+                  const results = await Promise.all(promises);
+                  resolve(results.flat());
+                } else {
+                  entries.push(...batch);
+                  readEntries();
+                }
+              }, (err) => reject(err));
+            };
+            readEntries();
+          } else {
+            resolve([]);
+          }
+        } catch(err) {
+          reject(err);
+        }
+      });
+    }
+
+    /**
+     * Process items from a drag-and-drop DataTransfer. Supports directories via webkitGetAsEntry.
+     * @param {DataTransferItemList} items
+     * @returns {Promise<File[]>}
+     */
+    async function processDataTransferItems(items) {
+      const files = [];
+      for (const item of items) {
+        if (item.kind !== 'file') continue;
+        try {
+          if (item.getAsFileSystemHandle) {
+            // Modern File System Access API support (not fully used yet): fallback to getAsFile
+            const handle = await item.getAsFileSystemHandle();
+            // If handle exists, we cannot easily traverse directories with FS API here, so fallback to file
+            if (handle.kind === 'file') {
+              const file = await handle.getFile();
+              file.fullPath = file.name;
+              file.webkitRelativePath = file.fullPath;
+              files.push(file);
+            } else {
+              // handle.kind === 'directory'; not handled in FS API path for now
+              // fallback to webkitGetAsEntry
+              if (item.webkitGetAsEntry) {
+                const entry = item.webkitGetAsEntry();
+                if (entry) {
+                  const res = await traverseEntry(entry, '');
+                  files.push(...res);
+                }
+              }
+            }
+          } else if (item.webkitGetAsEntry) {
+            const entry = item.webkitGetAsEntry();
+            if (entry) {
+              const res = await traverseEntry(entry, '');
+              files.push(...res);
+            }
+          } else {
+            const file = item.getAsFile();
+            if (file) {
+              file.fullPath = file.name;
+              file.webkitRelativePath = file.fullPath;
+              files.push(file);
+            }
+          }
+        } catch(err) {
+          console.error(err);
+        }
+      }
+      return files;
+    }
+
+    /**
+     * Add files returned from input or drag&drop to the createFiles array and re-render list.
+     * @param {File[]} files
+     */
+    function onCreateFilesAdded(files) {
+      files.forEach(file => {
+        // unify fullPath and webkitRelativePath for consistent rendering
+        const rel = file.webkitRelativePath || file.fullPath || file.name;
+        file.fullPath = rel;
+        file.webkitRelativePath = rel;
+        createFiles.push(file);
+      });
+      renderFilesList();
+    }
+
+    // Drag and drop handlers for creation zone
+    function handleCreateDragOver(e) {
+      e.preventDefault();
+      createDrop.classList.add('dragover');
+    }
+    function handleCreateDragLeave(e) {
+      e.preventDefault();
+      createDrop.classList.remove('dragover');
+    }
+    async function handleCreateDrop(e) {
+      e.preventDefault();
+      createDrop.classList.remove('dragover');
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      if (dt.items && dt.items.length > 0) {
+        const files = await processDataTransferItems(dt.items);
+        onCreateFilesAdded(files);
+      } else if (dt.files && dt.files.length > 0) {
+        // Fallback: treat as direct files (no directories)
+        const files = Array.from(dt.files).map(f => {
+          f.fullPath = f.name;
+          f.webkitRelativePath = f.fullPath;
+          return f;
+        });
+        onCreateFilesAdded(files);
+      }
+    }
+
+    // Bind drag events to createDrop zone
+    if (createDrop) {
+      ['dragenter','dragover'].forEach(evt => createDrop.addEventListener(evt, handleCreateDragOver));
+      ['dragleave','drop'].forEach(evt => createDrop.addEventListener(evt, handleCreateDragLeave));
+      createDrop.addEventListener('drop', handleCreateDrop);
+    }
 
     function renderFilesList() {
       if (createFiles.length === 0) {
